@@ -10,6 +10,18 @@ class BidirectionalLSTM(nn.Module):
     def __init__(self, input_size, hidden_size, out_channels):
         super(BidirectionalLSTM, self).__init__()
         self.rnn = nn.LSTM(input_size, hidden_size, bidirectional=True)
+        for names in self.rnn._all_weights:
+            for name in filter(lambda n: "bias" in n, names):
+                bias = getattr(self.rnn, name)
+                n = bias.size(0)
+                start, end = n // 4, n // 2
+                bias.data[start:end].fill_(1.)
+            for name in filter(lambda n: "weight" in n, names):
+                weight = getattr(self.rnn, name)
+                n = weight.size(0)
+                step = n // 4
+                for i in range(4):
+                    torch.nn.init.orthogonal_(weight[step * i:step * (i + 1)])
         self.embedding = nn.Linear(hidden_size * 2, out_channels)
 
     def forward(self, x):
@@ -40,15 +52,13 @@ class AttentionCell(nn.Module):
         hidden_size = self.hidden_size
 
         feats_proj = self.i2h(feats.view(-1, nC))
-        prev_hidden_proj = self.h2h(prev_hidden).view(1, nB, hidden_size).expand(nT, nB, hidden_size).contiguous().view(
-            -1, hidden_size)
+        prev_hidden_proj = self.h2h(prev_hidden).view(1, nB, hidden_size).expand(nT, nB, hidden_size).contiguous().view( -1, hidden_size)
         emition = self.score(tanh(feats_proj + prev_hidden_proj).view(-1, hidden_size)).view(nT, nB).transpose(0, 1)
 
-        alpha = softmax(emition)  # nB * nT
-        context = (feats * alpha.transpose(0, 1).contiguous().view(nT, nB, 1).expand(nT, nB, nC)).sum(0).squeeze(
-            0)  # nB * nC
+        alpha = softmax(emition, dim=-1)  # nB * nT
+        context = (feats * alpha.transpose(0, 1).contiguous().view(nT, nB, 1).expand(nT, nB, nC)).sum(0).squeeze(0)  # nB * nC
         if cur_embeddings:
-            context = torch.cat([context] + cur_embeddings, 1)
+            context = torch.cat([context, *cur_embeddings], dim=1)
         cur_hidden = self.rnn(context, prev_hidden)
         return cur_hidden, alpha
 
@@ -72,8 +82,8 @@ class Attention(nn.Module):
         assert (input_size == nC)
         assert (nB == text_length.numel())
 
-        num_steps = text_length.data.max()
-        num_labels = text_length.data.sum()
+        num_steps = text_length.data.max().item()
+        num_labels = text_length.data.sum().item()
         if self.num_embeddings is not None:
             targets = torch.zeros(nB, num_steps + 1).long().cuda()
             start_id = 0
@@ -84,8 +94,6 @@ class Attention(nn.Module):
 
         output_hiddens = torch.zeros(num_steps, nB, hidden_size).type_as(feats.data)
         hidden = torch.zeros(nB, hidden_size).type_as(feats.data)
-        max_locs = torch.zeros(num_steps, nB)
-        max_vals = torch.zeros(num_steps, nB)
         for i in range(num_steps):
             if self.num_embeddings is not None:
                 cur_embeddings = self.char_embeddings.index_select(0, targets[i])
@@ -93,13 +101,6 @@ class Attention(nn.Module):
             else:
                 hidden, alpha = self.attention_cell(hidden, feats)
             output_hiddens[i] = hidden
-            if self.processed_batches % 500 == 0:
-                max_val, max_loc = alpha.data.max(1)
-                max_locs[i] = max_loc.cpu()
-                max_vals[i] = max_val.cpu()
-        if self.processed_batches % 500 == 0:
-            print('max_locs', list(max_locs[0:text_length.data[0], 0]))
-            print('max_vals', list(max_vals[0:text_length.data[0], 0]))
         new_hiddens = torch.zeros(num_labels, hidden_size).type_as(feats.data)
         b = 0
         start = 0
@@ -128,6 +129,16 @@ class CRNN(nn.Module):
             BidirectionalLSTM(512, hidden_size, hidden_size),
             BidirectionalLSTM(hidden_size, hidden_size, hidden_size))
         self.attention = Attention(hidden_size, hidden_size, num_class, num_embeddings)
+        self.cnn.apply(self._init_conv)
+
+    @staticmethod
+    def _init_conv(m):
+        if isinstance(m, nn.Conv2d):
+            torch.nn.init.xavier_uniform_(m.weight)
+            torch.nn.init.constant_(m.bias, 0)
+        elif isinstance(m, nn.BatchNorm2d):
+            torch.nn.init.normal_(m.weight, 1., 0.02)
+            torch.nn.init.constant_(m.bias, 0)
 
     def forward(self, x, length, *text):
         # conv features
