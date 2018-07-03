@@ -1,10 +1,12 @@
+# encoding: UTF-8
+
 import torch
 from torch.autograd import Variable
 import utils
 import dataset
 from PIL import Image
 
-import models.crnn as crnn
+import crnn
 
 
 model_path = './data/crnn.pth'

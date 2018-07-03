@@ -1,4 +1,5 @@
-from __future__ import print_function
+# encoding: UTF-8
+
 import argparse
 import random
 import torch
@@ -7,14 +8,12 @@ import torch.optim as optim
 import torch.utils.data
 from torch.autograd import Variable
 import numpy as np
-from warpctc_pytorch import CTCLoss
 import os
 import utils
 import dataset
 import time
 
-import models.crnn_lang as crnn
-print(crnn.__name__)
+import crnn
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--trainlist', required=True, help='path to train_list')
@@ -77,7 +76,7 @@ test_dataset = dataset.listDataset(list_file =opt.vallist, transform=dataset.res
 nclass = len(opt.alphabet.split(opt.sep))
 nc = 1
 
-converter = utils.strLabelConverterForAttention(opt.alphabet, opt.sep)
+converter = utils.LabelConverterForAttention(opt.alphabet, opt.sep)
 criterion = torch.nn.CrossEntropyLoss()
 
 
@@ -137,7 +136,6 @@ def val(net, dataset, criterion, max_iter=100):
         dataset, shuffle=True, batch_size=opt.batchSize, num_workers=int(opt.workers))
     val_iter = iter(data_loader)
 
-    i = 0
     n_correct = 0
     loss_avg = utils.averager()
 
@@ -146,7 +144,6 @@ def val(net, dataset, criterion, max_iter=100):
         data = val_iter.next()
         i += 1
         cpu_images, cpu_texts = data
-        batch_size = cpu_images.size(0)
         utils.loadData(image, cpu_images)
         t, l = converter.encode(cpu_texts)
         utils.loadData(text, t)
@@ -176,18 +173,18 @@ def val(net, dataset, criterion, max_iter=100):
 
 
 def trainBatch(net, criterion, optimizer):
+    net.train()
     data = train_iter.next()
     cpu_images, cpu_texts = data
-    batch_size = cpu_images.size(0)
     utils.loadData(image, cpu_images)
     t, l = converter.encode(cpu_texts)
     utils.loadData(text, t)
     utils.loadData(length, l)
 
     if opt.lang:
-        preds = crnn(image, length, text)
+        preds = net(image, length, text)
     else:
-        preds = crnn(image, length)
+        preds = net(image, length)
     cost = criterion(preds, text)
     crnn.zero_grad()
     cost.backward()

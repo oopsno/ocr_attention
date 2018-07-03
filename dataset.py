@@ -1,14 +1,10 @@
-#!/usr/bin/python
-# encoding: utf-8
+# encoding: UTF-8
 
 import random
 import torch
 from torch.utils.data import Dataset
 from torch.utils.data import sampler
 import torchvision.transforms as transforms
-import lmdb
-import six
-import sys
 from PIL import Image
 import numpy as np
 

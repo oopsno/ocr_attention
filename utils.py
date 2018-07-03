@@ -1,12 +1,12 @@
-#!/usr/bin/python
-# encoding: utf-8
+# encoding: UTF-8
 
 import torch
 import torch.nn as nn
 from torch.autograd import Variable
 import collections
 
-class strLabelConverterForAttention(object):
+
+class LabelConverterForAttention:
     """Convert between str and label.
 
     NOTE:
@@ -76,7 +76,8 @@ class strLabelConverterForAttention(object):
                 index += l
             return texts
 
-class strLabelConverterForCTC(object):
+
+class LabelConverterForCTC:
     """Convert between str and label.
 
     NOTE:
